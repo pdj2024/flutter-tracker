@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:track_image/pages/track_meter_page.dart';
+import 'package:track_image/pages/track_with_google.dart';
 
 class FeatureCard extends StatelessWidget {
   Map<String, dynamic> item;
@@ -8,20 +9,35 @@ class FeatureCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isMLKit = item['isGoogleMLKit'] ?? false;
     return GestureDetector(
       onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => TrackMeterPage(
-              featureTitle: item['title'] ?? '',
-              featurePrompt: item['prompt'] ?? '',
-              featureIcon: item['icon'] as IconData,
+        if (isMLKit) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => TrackWithGoogle(
+                featureTitle: item['title'] ?? '',
+                featurePrompt: item['prompt'] ?? '',
+                featureIcon: item['icon'] as IconData,
+              ),
             ),
-          ),
-        );
+          );
+        } else {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => TrackMeterPage(
+                featureTitle: item['title'] ?? '',
+                featurePrompt: item['prompt'] ?? '',
+                featureIcon: item['icon'] as IconData,
+              ),
+            ),
+          );
+        }
       },
       child: Container(
+        padding: EdgeInsets.symmetric(vertical: 16),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(20),
@@ -38,18 +54,42 @@ class FeatureCard extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             // Icon container dengan gradient
-            Container(
-              width: 80,
-              height: 80,
-              decoration: BoxDecoration(
-                gradient: LinearGradient(colors: gradient),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Icon(
-                item['icon'] as IconData,
-                size: 40,
-                color: Colors.white,
-              ),
+            Stack(
+              children: [
+                Container(
+                  width: 80,
+                  height: 80,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(colors: gradient),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Icon(
+                    item['icon'] as IconData,
+                    size: 40,
+                    color: Colors.white,
+                  ),
+                ),
+                if (isMLKit)
+                  Positioned(
+                    bottom: 0,
+                    right: 0,
+                    child: Container(
+                      width: 24,
+                      height: 24,
+                      padding: EdgeInsets.all(3),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        shape: BoxShape.circle,
+                      ),
+                      child: ClipOval(
+                        child: Image.asset(
+                          'assets/google.png',
+                          fit: BoxFit.contain,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
             ),
             SizedBox(height: 16),
             // Title

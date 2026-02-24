@@ -2,7 +2,9 @@ import 'dart:io';
 
 import 'package:another_dashed_container/another_dashed_container.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:track_image/models/display_model.dart';
 import 'package:track_image/services/tracker_service.dart';
 import 'package:track_image/widgets/image_widget.dart';
@@ -29,41 +31,130 @@ class _TrackMeterPageState extends State<TrackMeterPage> {
   TrackerService trackerService = TrackerService();
   File? imageFile;
   String? orientationImage;
-  int? durationProcess;
+  int? durationProcessGPT;
+  int? durationProcessCompress;
 
   bool isLoading = false;
+  bool isCompressing = false;
 
   DisplayModel? result;
+
+  // Fungsi untuk kompresi gambar
+  Future<File?> compressImage(File file) async {
+    final dir = await getTemporaryDirectory();
+    final targetPath =
+        '${dir.path}/${DateTime.now().millisecondsSinceEpoch}_compressed.jpg';
+
+    // Dapatkan ukuran file asli
+    final originalSize = await file.length();
+    print(
+      "Original size: ${(originalSize / 1024 / 1024).toStringAsFixed(2)} MB",
+    );
+
+    final result = await FlutterImageCompress.compressAndGetFile(
+      file.absolute.path,
+      targetPath,
+      quality: 70, // Kualitas 70% - balance antara ukuran dan kualitas
+      minWidth: 1024, // Max width 1024px
+      minHeight: 1024, // Max height 1024px
+      format: CompressFormat.jpeg,
+    );
+
+    if (result != null) {
+      final compressedSize = await result.length();
+      print(
+        "Compressed size: ${(compressedSize / 1024 / 1024).toStringAsFixed(2)} MB",
+      );
+      print(
+        "Compression ratio: ${((1 - compressedSize / originalSize) * 100).toStringAsFixed(1)}%",
+      );
+      return File(result.path);
+    }
+
+    return file; // Return original jika kompresi gagal
+  }
 
   void pickImageFromGallery() async {
     imageFile = null;
     result = null;
     final XFile? picked = await picker.pickImage(source: ImageSource.gallery);
     if (picked != null) {
-      final orientation = await trackerService.getImageOrientation(
-        File(picked.path),
-      );
-      print("Orientation: $orientation");
       setState(() {
-        imageFile = File(picked.path);
-        orientationImage = orientation;
+        isCompressing = true;
       });
+
+      try {
+        // Kompresi gambar
+        final startTime = DateTime.now();
+        int duration = 0;
+        final compressedFile = await compressImage(File(picked.path));
+
+        final orientation = await trackerService.getImageOrientation(
+          compressedFile!,
+        );
+
+        print("Orientation: $orientation");
+
+        setState(() {
+          durationProcessCompress = duration;
+          imageFile = compressedFile;
+          orientationImage = orientation;
+          isCompressing = false;
+        });
+        final endTime = DateTime.now();
+        duration = endTime.difference(startTime).inSeconds;
+      } catch (e) {
+        print("Error compressing image: $e");
+        setState(() {
+          imageFile = File(picked.path);
+          isCompressing = false;
+        });
+      }
     }
   }
 
   void pickImageFromCamera() async {
     imageFile = null;
     result = null;
-    final XFile? picked = await picker.pickImage(source: ImageSource.camera);
+    final XFile? picked = await picker.pickImage(
+      source: ImageSource.camera,
+      // Tambahan: batasi resolusi saat capture
+      maxWidth: 1920,
+      maxHeight: 1920,
+      imageQuality: 85,
+    );
+
     if (picked != null) {
-      final orientation = await trackerService.getImageOrientation(
-        File(picked.path),
-      );
-      print("Orientation: $orientation");
       setState(() {
-        imageFile = File(picked.path);
-        orientationImage = orientation;
+        isCompressing = true;
       });
+
+      try {
+        final startTime = DateTime.now();
+        int duration = 0;
+        // Kompresi gambar tambahan
+        final compressedFile = await compressImage(File(picked.path));
+
+        final orientation = await trackerService.getImageOrientation(
+          compressedFile!,
+        );
+        print("Orientation: $orientation");
+
+        setState(() {
+          durationProcessCompress = duration;
+          imageFile = compressedFile;
+          orientationImage = orientation;
+          isCompressing = false;
+        });
+        final endTime = DateTime.now();
+        duration = endTime.difference(startTime).inSeconds;
+      } catch (e) {
+        print("Error compressing image: $e");
+        setState(() {
+          imageFile = File(picked.path);
+          isCompressing = false;
+        });
+      }
     }
   }
 
@@ -74,7 +165,6 @@ class _TrackMeterPageState extends State<TrackMeterPage> {
     final startTime = DateTime.now();
     int duration = 0;
     try {
-      // Kirim prompt sesuai fitur yang dipilih
       result = await trackerService.askOpenAI(
         imageFile!,
         customPrompt: widget.featurePrompt,
@@ -88,7 +178,7 @@ class _TrackMeterPageState extends State<TrackMeterPage> {
       print("terjadi error: $e");
     } finally {
       setState(() {
-        durationProcess = duration;
+        durationProcessGPT = duration;
         isLoading = false;
       });
     }
@@ -165,7 +255,6 @@ class _TrackMeterPageState extends State<TrackMeterPage> {
                 Column(
                   children: [
                     SizedBox(height: 30),
-                    // Icon feature yang dipilih
                     Container(
                       padding: EdgeInsets.all(20),
                       decoration: BoxDecoration(
@@ -183,7 +272,10 @@ class _TrackMeterPageState extends State<TrackMeterPage> {
                     SizedBox(height: 20),
                     Text(
                       widget.featureTitle,
-                      style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 40),
@@ -195,7 +287,25 @@ class _TrackMeterPageState extends State<TrackMeterPage> {
                     ),
                   ],
                 ),
-                if (imageFile == null)
+                // Loading indicator saat kompresi
+                if (isCompressing)
+                  Container(
+                    height: 500,
+                    child: Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          CircularProgressIndicator(color: Color(0xff10bddc)),
+                          SizedBox(height: 16),
+                          Text(
+                            'Optimizing image...',
+                            style: TextStyle(color: Colors.grey),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                if (!isCompressing && imageFile == null)
                   Container(
                     height: 500,
                     child: GestureDetector(
@@ -259,7 +369,7 @@ class _TrackMeterPageState extends State<TrackMeterPage> {
                       ),
                     ),
                   ),
-                if (imageFile != null)
+                if (!isCompressing && imageFile != null)
                   Column(
                     children: [
                       ImageWidget(
@@ -276,16 +386,17 @@ class _TrackMeterPageState extends State<TrackMeterPage> {
                             outputToken: result?.outputTokens.toString() ?? "-",
                             priceIDR:
                                 result?.costIdr.toStringAsFixed(2).toString() ??
-                                    "-",
+                                "-",
                             priceDollar:
                                 result?.costUsd.toStringAsFixed(6).toString() ??
-                                    "-",
+                                "-",
                             onReset: () {
                               setState(() {
                                 showImagePicker(context);
                               });
                             },
-                            duration: durationProcess ?? 0,
+                            durationGPT: durationProcessGPT ?? 0,
+                            durationCompress: durationProcessCompress ?? 0,
                             totalToken: result?.totalTokens.toString() ?? "-",
                           )
                         else
